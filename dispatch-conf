@@ -7,7 +7,7 @@
 #  Distributed under the terms of the GNU Public License v2
 #
 #  Jeremy Wohl (http://igmus.org)
-#  $Id: dispatch-conf,v 1.12 2003/02/03 13:23:04 jeremyw Exp $
+#  $Id: dispatch-conf,v 1.13 2003/02/05 09:39:31 jeremyw Exp $
 #
 # TODO
 #  dialog menus
@@ -90,7 +90,7 @@ class dispatch:
                 if c == 'q':
                     sys.exit (0)
                 if c == 'h':
-                    do_help ()
+                    self.do_help ()
                     continue
                 elif c == 'n':
                     break
