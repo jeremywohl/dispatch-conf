@@ -1,0 +1,68 @@
+#!/usr/bin/python
+
+#
+# dispatch-conf -- Integrate modified /etc configs, post-emerge
+#
+# updated 15-Dec-2002
+
+import os, sys, re
+
+def main ():
+    newconfigs = [x.rstrip() for x in os.popen ("find /etc -iname '._cfg????_*'").readlines ()]
+    newconfigs.sort ()
+
+    count = 0
+
+    for newconfig in newconfigs:
+        count = count + 1
+    
+        curconfig = re.sub (r'\._cfg\d+_', '', newconfig)
+
+        while 1:
+            os.system ('clear')
+            print '>>> %i of %i >>>>>> diff %s %s' % (count, len(newconfigs), curconfig, newconfig)
+            print
+
+            for line in os.popen ('diff -u %s %s' % (curconfig, newconfig)).readlines ():
+                print line,
+
+            print
+            print '>> %s >> q quit, n skip, e edit current, k kill new, s supercede w/new' % (curconfig,) ,
+
+            c = getch ()
+            
+            if c == 'q':
+                sys.exit (0)
+            elif c == 'n':
+                break
+            elif c == 'e':
+                pid = os.getpid ()
+                os.popen ('diff -u %s %s > /tmp/dispatch-conf.diff.%i' % (curconfig, newconfig, pid))
+                os.system ('$EDITOR %s /tmp/dispatch-conf.diff.%i' % (curconfig, pid))
+                os.unlink ('/tmp/dispatch-conf.diff.%i' % (pid,))
+                continue
+            elif c == 'k':
+                os.remove (newconfig)
+                break
+            elif c == 's':
+                os.rename (newconfig, curconfig)
+                break
+            else:
+                continue
+
+def getch ():
+    # from ASPN - Danny Yoo
+    #
+    import sys, tty, termios
+    
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setraw(sys.stdin.fileno())
+        ch = sys.stdin.read(1)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    return ch
+
+        
+main ()
