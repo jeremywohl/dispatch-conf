@@ -1,20 +1,35 @@
 #!/usr/bin/python
 
 #
-# dispatch-conf -- Integrate modified /etc configs, post-emerge
+# dispatch-conf -- Integrate modified configs, post-emerge
 #
-# updated 17-Dec-2002 by Jeremy Wohl (http://igmus.org)
+# updated 18-Dec-2002 by Jeremy Wohl (http://igmus.org)
+#
+# TODO
+#  dialog menus
+#  we need to canonicalize MASK dirs?
+#  auto-merge if diff is comments-and-whitespace?
+#  backup over-written files?
+#
 
-import os, sys, re
+import os, sys, re, commands, ConfigParser
 import portage
 
-FIND_UPDATED_CONFIGS  = "find %s -iname '._cfg????_*'"
-DIFF_HEADER_TEST      = 'diff -u %s %s | grep "^[+-][^+-]" | grep -v "# .Header:.*"'
-DISPLAY_DIFF          = 'diff -u %s %s' 
+FIND_EXTANT_CONFIGS  = "find %s -iname '._cfg????_*'"
+DIFF_CONTENTS        = 'diff -Nau %s %s'
+DIFF_HEADER          = 'diff -Nau %s %s | grep "^[+-][^+-]" | grep -v "# .Header:.*"'
+DIFF_WSCOMMENTS      = 'diff -Nau %s %s | grep "^[+-][^+-]" | grep -v "^[-+]#|^[-+]?[:space:]*$"'
+DISPLAY_DIFF         = 'diff -Nau %s %s | less --no-init --QUIT-AT-EOF'
+MERGE                = 'sdiff --suppress-common-lines --output=%s %s %s'
+
+LONG_OPTIONS    = [ 'replace-wscomments' ]
+opt_ws_comments = False
 
 def main ():
     confs = []
     count = 0
+
+    read_config ()
 
     #
     # Build list of extant configs
@@ -24,17 +39,28 @@ def main ():
         if not os.path.exists (path):
             continue
         
-        confs += massage (os.popen (FIND_UPDATED_CONFIGS % (path,)).readlines ())
+        confs += massage (os.popen (FIND_EXTANT_CONFIGS % (path,)).readlines ())
 
     #
-    # Auto-replace configs a) in paths now unprotected by the PROTECT_MASK
-    #                      b) whose differences are simply CVS interpolations
+    # Remove new configs identical to current
+    #
+    # Auto-replace configs a) whose differences are simply CVS interpolations
+    #                  or  b) in paths now unprotected by CONFIG_PROTECT_MASK
+    #                  or  c) whose differences are simply ws or comments,
+    #                         if the option is set
     #
     
     def f (conf):
-        # @@todo: we need to canonicalize MASK dirs?
-        if conf ['dir'] in portage.settings ['CONFIG_PROTECT_MASK'].split () or \
-               os.system (DIFF_HEADER_TEST % (conf ['current'], conf ['new'])) == 0:
+        same_file = len(commands.getoutput (DIFF_CONTENTS   % (conf ['current'], conf ['new']))) == 0
+        same_cvs  = len(commands.getoutput (DIFF_HEADER     % (conf ['current'], conf ['new']))) == 0
+        same_wsc  = len(commands.getoutput (DIFF_WSCOMMENTS % (conf ['current'], conf ['new']))) == 0
+
+        if same_file:
+            os.unlink (conf ['new'])
+            return False
+        elif same_cvs or \
+                 same_wsc and opt_replace_wscomments or \
+                 conf ['dir'] in portage.settings ['CONFIG_PROTECT_MASK'].split ():
             os.rename (conf ['new'], conf ['current'])
             return False
         else:
@@ -50,27 +76,24 @@ def main ():
         count = count + 1
 
         while 1:
-            os.system ('clear')
-            print '>>> %i of %i >>>>>> diff %s %s' % (count, len(confs), conf ['current'], conf ['new'])
-            print
-
-            for line in os.popen (DISPLAY_DIFF % (conf ['current'], conf ['new'])).readlines ():
-                print line,
+            os.system (DISPLAY_DIFF % (conf ['current'], conf ['new']))
 
             print
-            print '>> %s >> q quit, n skip, e edit current, k kill new, s supercede w/new' % (conf ['current'],) ,
+            print '>> (%i of %i) -- %s' % (count, len(confs), conf ['current'])
+            print '>> q quit, h help, n skip, f fuse/merge, k kill new, s supercede w/new',
 
             c = getch ()
                 
             if c == 'q':
                 sys.exit (0)
+            if c == 'h':
+                do_help ()
+                continue
             elif c == 'n':
                 break
-            elif c == 'e':
-                pid = os.getpid ()
-                os.popen (DISPLAY_DIFF + ' > /tmp/dispatch-conf.diff.%i' % (conf ['current'], conf ['new'], pid))
-                os.system ('$EDITOR %s /tmp/dispatch-conf.diff.%i' % (conf ['current'], pid))
-                os.unlink ('/tmp/dispatch-conf.diff.%i' % (pid,))
+            elif c == 'f':
+                merged = '/tmp/dispatch-conf.merged.%i' % (os.getpid (),)
+                os.system (MERGE % (merged, conf ['current'], conf ['new']))
                 continue
             elif c == 'k':
                 os.remove (conf ['new'])
@@ -90,19 +113,62 @@ def massage (newconfigs):
 
     We keep ._cfg0002_conf over ._cfg0001_conf and ._cfg0000_conf.
     """
+    h = {}
+
     newconfigs.sort ()
 
-    h = {}
-    for n in newconfigs:
-        n    = n.rstrip ()
-        conf = re.sub (r'\._cfg\d+_', '', n)
-        dir  = re.match (r'^(.+)/', n).group (1)
-        h [conf] = { 'current' : conf, 'dir' : dir, 'new' : n }
+    for nconf in newconfigs:
+        nconf = nconf.rstrip ()
+        conf  = re.sub (r'\._cfg\d+_', '', nconf)
+        dir   = re.match (r'^(.+)/', nconf).group (1)
+        h [conf] = { 'current' : conf, 'dir' : dir, 'new' : nconf }
 
     configs = h.values ()
     configs.sort (lambda a, b: cmp(a ['current'], b ['current']))
 
     return configs
+
+
+def do_help ():
+    print; print
+
+    print '  q -- quit'
+    print '  h -- this screen'
+    print '  n -- next/skip to next config, leave all intact'
+    print '  f -- interactively fuse/merge current and new configs'
+    print '  k -- kill/remove new config and continue'
+    print '  s -- supercede current config with new and continue'
+
+    print; print 'press any key to return to diff...',
+    
+    getch ()
+    
+
+def read_config ():
+    config = ConfigParser.ConfigParser ()
+    config.read ('/etc/dispatch.conf')
+
+    
+    try:
+        opts, args = getopt.getopt (sys.argv [1:], 'h', LONG_OPTIONS)
+    except:
+        die_usage ()
+    
+    for opt, arg in opts:
+        if opt in ('-h', '--help'):
+            die_usage ()
+        if opt == '--replace-wscomments':
+            opt_replace_wscomments = True
+    
+
+def die_usage ():
+    print "usage: dispatch-conf [-h|--help] [--replace-wscomments]"
+    print
+    print "  -h, --help               This message"
+    print "  --replace-wscomments     Automerge changes comprising only whitespace and comments"
+    print "                              (default is disabled)"
+
+    sys.exit (1)
 
 
 def getch ():
