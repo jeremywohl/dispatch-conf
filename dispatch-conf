@@ -3,52 +3,107 @@
 #
 # dispatch-conf -- Integrate modified /etc configs, post-emerge
 #
-# updated 15-Dec-2002
+# updated 17-Dec-2002 by Jeremy Wohl (http://igmus.org)
 
 import os, sys, re
+import portage
+
+FIND_UPDATED_CONFIGS  = "find %s -iname '._cfg????_*'"
+DIFF_HEADER_TEST      = 'diff -u %s %s | grep "^[+-][^+-]" | grep -v "# .Header:.*"'
+DISPLAY_DIFF          = 'diff -u %s %s' 
 
 def main ():
-    newconfigs = [x.rstrip() for x in os.popen ("find /etc -iname '._cfg????_*'").readlines ()]
-    newconfigs.sort ()
-
+    confs = []
     count = 0
 
-    for newconfig in newconfigs:
-        count = count + 1
+    #
+    # Build list of extant configs
+    #
     
-        curconfig = re.sub (r'\._cfg\d+_', '', newconfig)
+    for path in portage.settings ['CONFIG_PROTECT'].split ():
+        if not os.path.exists (path):
+            continue
+        
+        confs += massage (os.popen (FIND_UPDATED_CONFIGS % (path,)).readlines ())
+
+    #
+    # Auto-replace configs a) in paths now unprotected by the PROTECT_MASK
+    #                      b) whose differences are simply CVS interpolations
+    #
+    
+    def f (conf):
+        # @@todo: we need to canonicalize MASK dirs?
+        if conf ['dir'] in portage.settings ['CONFIG_PROTECT_MASK'].split () or \
+               os.system (DIFF_HEADER_TEST % (conf ['current'], conf ['new'])) == 0:
+            os.rename (conf ['new'], conf ['current'])
+            return False
+        else:
+            return True
+
+    confs = filter (f, confs)
+
+    #
+    # Interactively process remaining
+    #
+    
+    for conf in confs:
+        count = count + 1
 
         while 1:
             os.system ('clear')
-            print '>>> %i of %i >>>>>> diff %s %s' % (count, len(newconfigs), curconfig, newconfig)
+            print '>>> %i of %i >>>>>> diff %s %s' % (count, len(confs), conf ['current'], conf ['new'])
             print
 
-            for line in os.popen ('diff -u %s %s' % (curconfig, newconfig)).readlines ():
+            for line in os.popen (DISPLAY_DIFF % (conf ['current'], conf ['new'])).readlines ():
                 print line,
 
             print
-            print '>> %s >> q quit, n skip, e edit current, k kill new, s supercede w/new' % (curconfig,) ,
+            print '>> %s >> q quit, n skip, e edit current, k kill new, s supercede w/new' % (conf ['current'],) ,
 
             c = getch ()
-            
+                
             if c == 'q':
                 sys.exit (0)
             elif c == 'n':
                 break
             elif c == 'e':
                 pid = os.getpid ()
-                os.popen ('diff -u %s %s > /tmp/dispatch-conf.diff.%i' % (curconfig, newconfig, pid))
-                os.system ('$EDITOR %s /tmp/dispatch-conf.diff.%i' % (curconfig, pid))
+                os.popen (DISPLAY_DIFF + ' > /tmp/dispatch-conf.diff.%i' % (conf ['current'], conf ['new'], pid))
+                os.system ('$EDITOR %s /tmp/dispatch-conf.diff.%i' % (conf ['current'], pid))
                 os.unlink ('/tmp/dispatch-conf.diff.%i' % (pid,))
                 continue
             elif c == 'k':
-                os.remove (newconfig)
+                os.remove (conf ['new'])
                 break
             elif c == 's':
-                os.rename (newconfig, curconfig)
+                os.rename (conf ['new'], conf ['current'])
                 break
             else:
                 continue
+
+
+def massage (newconfigs):
+    """Sort, rstrip, remove old versions, break into triad hash.
+
+    Triad is dictionary of current (/etc/make.conf), new (/etc/._cfg0003_make.conf)
+    and dir (/etc).
+
+    We keep ._cfg0002_conf over ._cfg0001_conf and ._cfg0000_conf.
+    """
+    newconfigs.sort ()
+
+    h = {}
+    for n in newconfigs:
+        n    = n.rstrip ()
+        conf = re.sub (r'\._cfg\d+_', '', n)
+        dir  = re.match (r'^(.+)/', n).group (1)
+        h [conf] = { 'current' : conf, 'dir' : dir, 'new' : n }
+
+    configs = h.values ()
+    configs.sort (lambda a, b: cmp(a ['current'], b ['current']))
+
+    return configs
+
 
 def getch ():
     # from ASPN - Danny Yoo
