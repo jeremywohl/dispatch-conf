@@ -3,8 +3,8 @@
 #
 # dispatch-conf -- Integrate modified configs, post-emerge
 #
-# Jeremy Wohl (http://igmus.org)
-# $Id $
+#  Jeremy Wohl (http://igmus.org)
+#  $Id: dispatch-conf,v 1.6 2002/12/20 04:22:40 jeremyw Exp $
 #
 # TODO
 #  dialog menus
