@@ -4,7 +4,7 @@
 # dispatch-conf -- Integrate modified configs, post-emerge
 #
 # Jeremy Wohl (http://igmus.org)
-# $Version$
+# $Id $
 #
 # TODO
 #  dialog menus
