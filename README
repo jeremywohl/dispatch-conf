@@ -1,0 +1,10 @@
+dispatch-conf
+-------------
+
+Gentoo script to integrate new system configs, post-emerge; lots of advantages over etc-update.  Python.
+
+My own early repository before it was picked up by Gentoo developers.
+
+Description:    http://gentoo-wiki.com/Dispatch-conf
+Source control: http://sources.gentoo.org/viewcvs.py/portage/main/trunk/bin/dispatch-conf
+Issue set:      http://bugs.gentoo.org/buglist.cgi?quicksearch=dispatch-conf
